@@ -1,27 +1,147 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>My Azure Static Web App</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background: linear-gradient(135deg, #0078d4, #00bcf2);
-            color: white;
-            text-align: center;
-        }
-        h1 { font-size: 3rem; }
-        p  { font-size: 1.2rem; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Azure Web App</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: white;
+    overflow-x: hidden;
+  }
+  .navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 2rem;
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+  }
+  .logo { font-size: 1.4rem; font-weight: 700; color: #00d4ff; }
+  .nav-links { display: flex; gap: 1.5rem; list-style: none; }
+  .nav-links a { color: rgba(255,255,255,0.8); text-decoration: none; font-size: 0.95rem; }
+
+  .hero { text-align: center; padding: 5rem 2rem 3rem; }
+  .badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #00d4ff, #7b2ff7);
+    padding: 0.4rem 1.2rem;
+    border-radius: 50px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-bottom: 1.5rem;
+  }
+  .hero h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg, #00d4ff, #ff6b9d, #ffd700);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p { font-size: 1.2rem; color: rgba(255,255,255,0.7); max-width: 500px; margin: 0 auto 2rem; line-height: 1.6; }
+  .btn-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+  .btn { padding: 0.8rem 2rem; border-radius: 50px; font-size: 1rem; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary { background: linear-gradient(135deg, #00d4ff, #7b2ff7); color: white; }
+  .btn-outline { background: transparent; border: 2px solid rgba(255,255,255,0.4); color: white; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    padding: 2rem 2rem 3rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .card { border-radius: 16px; padding: 1.5rem; text-align: center; border: 1px solid rgba(255,255,255,0.1); }
+  .card-1 { background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(123,47,247,0.2)); }
+  .card-2 { background: linear-gradient(135deg, rgba(255,107,157,0.2), rgba(255,215,0,0.2)); }
+  .card-3 { background: linear-gradient(135deg, rgba(0,255,136,0.2), rgba(0,212,255,0.2)); }
+  .card-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+  .card h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.4rem; }
+  .card p { font-size: 0.9rem; color: rgba(255,255,255,0.65); line-height: 1.5; }
+
+  .stats {
+    display: flex;
+    justify-content: center;
+    gap: 3rem;
+    padding: 2rem;
+    background: rgba(255,255,255,0.04);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    flex-wrap: wrap;
+  }
+  .stat { text-align: center; }
+  .stat-num { font-size: 2rem; font-weight: 800; color: #00d4ff; }
+  .stat-label { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-top: 0.2rem; }
+
+  .footer { text-align: center; padding: 1.5rem; font-size: 0.85rem; color: rgba(255,255,255,0.35); border-top: 1px solid rgba(255,255,255,0.08); }
+
+  .dots { display: flex; justify-content: center; gap: 0.5rem; margin: 1rem 0 2rem; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; animation: pulse 2s infinite; }
+  .dot:nth-child(1) { background: #00d4ff; animation-delay: 0s; }
+  .dot:nth-child(2) { background: #ff6b9d; animation-delay: 0.3s; }
+  .dot:nth-child(3) { background: #ffd700; animation-delay: 0.6s; }
+  .dot:nth-child(4) { background: #00ff88; animation-delay: 0.9s; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.7)} }
+</style>
 </head>
 <body>
-    <div>
-        <h1>Hello Surendra !!! This is your Azure Static Web Apps!</h1>
-        <p>Deployed automatically from GitHub!</p>
+  <nav class="navbar">
+    <div class="logo">&#9670; MyApp</div>
+    <ul class="nav-links">
+      <li><a href="#">Home</a></li>
+      <li><a href="#">About</a></li>
+      <li><a href="#">Contact</a></li>
+    </ul>
+  </nav>
+
+  <section class="hero">
+    <div class="badge">&#127775; Live on Azure Static Web Apps</div>
+    <h1>Hello Azure!<br>My Colorful Page</h1>
+    <p>Deployed automatically from GitHub to Azure — fast, free, and global.</p>
+    <div class="dots">
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
     </div>
+    <div class="btn-group">
+      <button class="btn btn-primary">Get Started</button>
+      <button class="btn btn-outline">Learn More</button>
+    </div>
+  </section>
+
+  <div class="cards">
+    <div class="card card-1">
+      <div class="card-icon">&#9889;</div>
+      <h3>Fast</h3>
+      <p>Served via global CDN for lightning speed everywhere.</p>
+    </div>
+    <div class="card card-2">
+      <div class="card-icon">&#128274;</div>
+      <h3>Secure</h3>
+      <p>Free SSL certificate and HTTPS on every deployment.</p>
+    </div>
+    <div class="card card-3">
+      <div class="card-icon">&#128640;</div>
+      <h3>Auto Deploy</h3>
+      <p>Push to GitHub and your site updates automatically.</p>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-num">100%</div><div class="stat-label">Free hosting</div></div>
+    <div class="stat"><div class="stat-num">100GB</div><div class="stat-label">Bandwidth/month</div></div>
+    <div class="stat"><div class="stat-num">&lt;2min</div><div class="stat-label">Deploy time</div></div>
+  </div>
+
+  <footer class="footer">Built with Azure Static Web Apps &mdash; Deployed from GitHub</footer>
 </body>
 </html>
