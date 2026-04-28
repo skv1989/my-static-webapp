@@ -23,64 +23,136 @@ module.exports = async function (context, req) {
         return;
     }
 
-    const API_KEY      = process.env.AZURE_AI_KEY;
-    const VECTOR_STORE = "vs_ceSQP1x6kgLxsMeP8aOibW67";
+    const TENANT_ID     = process.env.AZURE_TENANT_ID;
+    const CLIENT_ID     = process.env.AZURE_CLIENT_ID;
+    const CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
+    const BASE          = "https://readexcel-resource.services.ai.azure.com/api/projects/readexcel";
+    const VER           = "2025-05-01";
+    const VECTOR_STORE  = "vs_ceSQP1x6kgLxsMeP8aOibW67";
+    const MODEL         = "gpt-4.1";
 
     try {
-        const requestBody = JSON.stringify({
-            model: "gpt-4.1",
-            messages: [
-                {
-                    role: "system",
-                    content: `You are ExlReader, an intelligent AI agent that analyzes employee data.
-You have access to an employee Excel file with these columns:
-Serial Number, Name, Enterprise ID, Employee ID/SAP ID, Tower, Level, Mobile, Location, Skills.
-The file has been indexed and you should answer questions about the employee data accurately.
-If asked about specific counts, names, towers, levels or skills — answer based on the data available.
-There are 9 employees in the dataset.`
-                },
-                {
-                    role: "user",
-                    content: userMessage
+        // Step 1: Get Azure AD token using client credentials
+        const tokenBody = `grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${encodeURIComponent(CLIENT_SECRET)}&scope=https%3A%2F%2Fai.azure.com%2F.default`;
+
+        const tokenData = await new Promise((resolve, reject) => {
+            const body = tokenBody;
+            const options = {
+                hostname: "login.microsoftonline.com",
+                path: `/${TENANT_ID}/oauth2/v2.0/token`,
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Content-Length": Buffer.byteLength(body)
                 }
-            ],
-            max_tokens: 1000
+            };
+            const r = https.request(options, res => {
+                let data = "";
+                res.on("data", chunk => data += chunk);
+                res.on("end", () => {
+                    context.log("Token status:", res.statusCode);
+                    try { resolve(JSON.parse(data)); }
+                    catch (e) { reject(new Error("Token parse: " + data)); }
+                });
+            });
+            r.on("error", reject);
+            r.write(body);
+            r.end();
         });
 
-        const url = "https://readexcel-resource.openai.azure.com/openai/deployments/gpt-4.1/chat/completions?api-version=2024-12-01-preview";
-
-        const reply = await callApi(API_KEY, url, requestBody);
-
-        context.log("Response:", JSON.stringify(reply).substring(0, 200));
-
-        if (reply.choices && reply.choices.length > 0) {
-            context.res.status = 200;
-            context.res.body = { reply: reply.choices[0].message.content };
-        } else if (reply.error) {
+        if (!tokenData.access_token) {
             context.res.status = 500;
-            context.res.body = { error: reply.error.message };
+            context.res.body = { error: "No token", detail: tokenData };
+            return;
+        }
+
+        const token = tokenData.access_token;
+        context.log("Token obtained!");
+
+        // Step 2: Create thread
+        const thread = await callApi(token, "POST", `${BASE}/threads?api-version=${VER}`, {
+            tool_resources: {
+                file_search: { vector_store_ids: [VECTOR_STORE] }
+            }
+        });
+
+        if (!thread.id) {
+            context.res.status = 500;
+            context.res.body = { error: "Thread failed", detail: thread };
+            return;
+        }
+
+        const threadId = thread.id;
+        context.log("Thread:", threadId);
+
+        // Step 3: Add message
+        await callApi(token, "POST", `${BASE}/threads/${threadId}/messages?api-version=${VER}`, {
+            role: "user",
+            content: userMessage
+        });
+
+        // Step 4: Run agent
+        const run = await callApi(token, "POST", `${BASE}/threads/${threadId}/runs?api-version=${VER}`, {
+            model: MODEL,
+            instructions: "You are ExlReader, an AI agent that analyzes employee Excel data. Answer questions based on the uploaded file.",
+            tools: [{ type: "file_search" }],
+            tool_resources: {
+                file_search: { vector_store_ids: [VECTOR_STORE] }
+            }
+        });
+
+        if (!run.id) {
+            context.res.status = 500;
+            context.res.body = { error: "Run failed", detail: run };
+            return;
+        }
+
+        context.log("Run:", run.id, "Status:", run.status);
+
+        // Step 5: Poll
+        let status = run.status;
+        let tries  = 0;
+        while (status !== "completed" && status !== "failed" && status !== "cancelled" && tries < 30) {
+            await sleep(2000);
+            const poll = await callApi(token, "GET", `${BASE}/threads/${threadId}/runs/${run.id}?api-version=${VER}`, null);
+            status = poll.status;
+            context.log("Poll:", status);
+            tries++;
+        }
+
+        // Step 6: Get reply
+        if (status === "completed") {
+            const msgs  = await callApi(token, "GET", `${BASE}/threads/${threadId}/messages?api-version=${VER}`, null);
+            const reply = msgs.data[0].content
+                .filter(c => c.type === "text")
+                .map(c => c.text.value)
+                .join("");
+            context.res.status = 200;
+            context.res.body   = { reply };
         } else {
             context.res.status = 500;
-            context.res.body = { error: "Unexpected response", raw: reply };
+            context.res.body   = { error: "Run status: " + status };
         }
 
     } catch (err) {
+        context.log("Error:", err.message);
         context.res.status = 500;
-        context.res.body = { error: err.message };
+        context.res.body   = { error: err.message };
     }
 };
 
-function callApi(apiKey, url, body) {
+function callApi(token, method, url, body) {
     return new Promise((resolve, reject) => {
-        const parsed = new URL(url);
+        const parsed  = new URL(url);
+        const bodyStr = body !== null ? JSON.stringify(body) : null;
         const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
-            method: "POST",
+            method,
             headers: {
-                "api-key": apiKey,
                 "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(body)
+                "Authorization": `Bearer ${token}`,
+                ...(bodyStr && { "Content-Length": Buffer.byteLength(bodyStr) })
             }
         };
         const req = https.request(options, res => {
@@ -88,11 +160,15 @@ function callApi(apiKey, url, body) {
             res.on("data", chunk => data += chunk);
             res.on("end", () => {
                 try { resolve(JSON.parse(data)); }
-                catch (e) { reject(new Error("Parse error: " + data)); }
+                catch (e) { reject(new Error("Parse: " + data)); }
             });
         });
         req.on("error", reject);
-        req.write(body);
+        if (bodyStr) req.write(bodyStr);
         req.end();
     });
+}
+
+function sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
 }
