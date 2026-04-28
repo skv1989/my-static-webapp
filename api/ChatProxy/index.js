@@ -47,7 +47,7 @@ module.exports = async function (context, req) {
 
         // Step 2: List assistants to find ExlReader ID
         const assistants = await callJson(token, "GET",
-    `${BASE}/agents?api-version=${VER}`, null);
+    `https://readexcel-resource.services.ai.azure.com/api/projects/readexcel/agents?api-version=2025-05-01`, null);
         context.log("Assistants:", JSON.stringify(assistants));
 
         // Return assistants list so we can find the real ID
