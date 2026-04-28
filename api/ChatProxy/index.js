@@ -28,6 +28,7 @@ module.exports = async function (context, req) {
     const CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
     const BASE          = "https://readexcel-resource.services.ai.azure.com/api/projects/readexcel";
     const VER           = "2025-05-01";
+    const AGENT_URL     = "https://agents.eastus2.hyena.infra.ai.azure.com/agents/v2.0/subscriptions/efaa40db-47ff-4b5d-8d35-b798085a8ea3/resourceGroups/SurendraAIAgents/providers/Microsoft.MachineLearningServices/workspaces/readexcel-resource@readexcel@AML/agents";
 
     try {
         // Step 1: Get token
@@ -45,14 +46,12 @@ module.exports = async function (context, req) {
         const token = tokenData.access_token;
         context.log("Token obtained!");
 
-        // Step 2: List assistants to find ExlReader ID
-        const assistants = await callJson(token, "GET",
-    `https://readexcel-resource.services.ai.azure.com/api/projects/readexcel/agents?api-version=2025-05-01`, null);
-        context.log("Assistants:", JSON.stringify(assistants));
+        // Step 2: List agents using direct URL
+        const agents = await callJson(token, "GET", AGENT_URL, null);
+        context.log("Agents:", JSON.stringify(agents).substring(0, 500));
 
-        // Return assistants list so we can find the real ID
         context.res.status = 200;
-        context.res.body = { assistants };
+        context.res.body = { agents };
         return;
 
     } catch (err) {
