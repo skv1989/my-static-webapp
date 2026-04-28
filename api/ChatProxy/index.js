@@ -27,11 +27,9 @@ module.exports = async function (context, req) {
     const CLIENT_ID     = process.env.AZURE_CLIENT_ID;
     const CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
     const BASE          = "https://readexcel-resource.services.ai.azure.com/api/projects/readexcel";
-    const VER           = "2025-05-01";
-    const AGENT_URL     = "https://agents.eastus2.hyena.infra.ai.azure.com/agents/v2.0/subscriptions/efaa40db-47ff-4b5d-8d35-b798085a8ea3/resourceGroups/SurendraAIAgents/providers/Microsoft.MachineLearningServices/workspaces/readexcel-resource@readexcel@AML/agents";
 
     try {
-        // Step 1: Get token
+        // Step 1: Get token for ai.azure.com
         const tokenBody = `grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${encodeURIComponent(CLIENT_SECRET)}&scope=https%3A%2F%2Fai.azure.com%2F.default`;
 
         const tokenData = await postForm("login.microsoftonline.com",
@@ -46,12 +44,25 @@ module.exports = async function (context, req) {
         const token = tokenData.access_token;
         context.log("Token obtained!");
 
-        // Step 2: List agents using direct URL
-        const agents = await callJson(token, "GET", AGENT_URL, null);
-        context.log("Agents:", JSON.stringify(agents).substring(0, 500));
+        // Step 2: Try multiple API versions to list agents
+        const versions = [
+            "2025-05-01",
+            "2025-01-01-preview",
+            "2024-12-01-preview",
+            "2024-07-01-preview"
+        ];
+
+        const results = {};
+        for (const ver of versions) {
+            const res = await callJson(token, "GET",
+                `${BASE}/assistants?api-version=${ver}`, null);
+            context.log(`Version ${ver}:`, JSON.stringify(res).substring(0, 200));
+            results[ver] = res;
+            if (res.data && res.data.length > 0) break;
+        }
 
         context.res.status = 200;
-        context.res.body = { agents };
+        context.res.body = { results };
         return;
 
     } catch (err) {
@@ -108,7 +119,7 @@ function callJson(token, method, url, body) {
                     return;
                 }
                 try { resolve(JSON.parse(data)); }
-                catch (e) { reject(new Error("JSON parse: " + data.substring(0, 200))); }
+                catch (e) { reject(new Error("JSON parse: " + data.substring(0,200))); }
             });
         });
         req.on("error", reject);
