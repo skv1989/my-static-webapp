@@ -1,5 +1,4 @@
 const https = require("https");
-const http  = require("http");
 
 module.exports = async function (context, req) {
     context.res = {
@@ -24,136 +23,64 @@ module.exports = async function (context, req) {
         return;
     }
 
-    const BASE         = "https://readexcel-resource.services.ai.azure.com/api/projects/readexcel";
-    const VER          = "2025-05-01";
+    const API_KEY      = process.env.AZURE_AI_KEY;
     const VECTOR_STORE = "vs_ceSQP1x6kgLxsMeP8aOibW67";
-    const MODEL        = "gpt-4.1";
 
     try {
-        const endpoint = process.env.IDENTITY_ENDPOINT;
-        const header   = process.env.IDENTITY_HEADER;
-
-        if (!endpoint) {
-            context.res.status = 500;
-            context.res.body = { error: "Identity endpoint not configured" };
-            return;
-        }
-
-        const tokenUrl  = `${endpoint}?api-version=2019-08-01&resource=https%3A%2F%2Fai.azure.com`;
-        const parsedUrl = new URL(tokenUrl);
-        const isHttps   = parsedUrl.protocol === "https:";
-        const lib       = isHttps ? https : http;
-
-        const tokenData = await new Promise((resolve, reject) => {
-            const options = {
-                hostname: parsedUrl.hostname,
-                port: isHttps ? 443 : 80,
-                path: parsedUrl.pathname + parsedUrl.search,
-                method: "GET",
-                headers: {
-                    "X-IDENTITY-HEADER": header,
-                    "Metadata": "true"
+        const requestBody = JSON.stringify({
+            model: "gpt-4.1",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are ExlReader, an intelligent AI agent that analyzes employee data.
+You have access to an employee Excel file with these columns:
+Serial Number, Name, Enterprise ID, Employee ID/SAP ID, Tower, Level, Mobile, Location, Skills.
+The file has been indexed and you should answer questions about the employee data accurately.
+If asked about specific counts, names, towers, levels or skills — answer based on the data available.
+There are 9 employees in the dataset.`
+                },
+                {
+                    role: "user",
+                    content: userMessage
                 }
-            };
-            const r = lib.request(options, res => {
-                let data = "";
-                res.on("data", chunk => data += chunk);
-                res.on("end", () => {
-                    try { resolve(JSON.parse(data)); }
-                    catch (e) { reject(new Error("Token parse: " + data)); }
-                });
-            });
-            r.on("error", reject);
-            r.end();
+            ],
+            max_tokens: 1000
         });
 
-        if (!tokenData.access_token) {
-            context.res.status = 500;
-            context.res.body = { error: "No token", detail: tokenData };
-            return;
-        }
+        const url = "https://readexcel-resource.openai.azure.com/openai/deployments/gpt-4.1/chat/completions?api-version=2024-12-01-preview";
 
-        const token = tokenData.access_token;
+        const reply = await callApi(API_KEY, url, requestBody);
 
-        // Step 1: Create thread
-        const thread = await callApi(token, "POST", `${BASE}/threads?api-version=${VER}`, {
-            tool_resources: {
-                file_search: { vector_store_ids: [VECTOR_STORE] }
-            }
-        });
+        context.log("Response:", JSON.stringify(reply).substring(0, 200));
 
-        if (!thread.id) {
-            context.res.status = 500;
-            context.res.body = { error: "Thread failed", detail: thread };
-            return;
-        }
-
-        const threadId = thread.id;
-
-        // Step 2: Add message
-        await callApi(token, "POST", `${BASE}/threads/${threadId}/messages?api-version=${VER}`, {
-            role: "user",
-            content: userMessage
-        });
-
-        // Step 3: Run
-        const run = await callApi(token, "POST", `${BASE}/threads/${threadId}/runs?api-version=${VER}`, {
-            model: MODEL,
-            instructions: "You are ExlReader, an AI agent that analyzes employee Excel data. Answer questions based on the file.",
-            tools: [{ type: "file_search" }],
-            tool_resources: {
-                file_search: { vector_store_ids: [VECTOR_STORE] }
-            }
-        });
-
-        if (!run.id) {
-            context.res.status = 500;
-            context.res.body = { error: "Run failed", detail: run };
-            return;
-        }
-
-        // Step 4: Poll
-        let status = run.status;
-        let tries  = 0;
-        while (status !== "completed" && status !== "failed" && status !== "cancelled" && tries < 30) {
-            await sleep(2000);
-            const poll = await callApi(token, "GET", `${BASE}/threads/${threadId}/runs/${run.id}?api-version=${VER}`, null);
-            status = poll.status;
-            tries++;
-        }
-
-        // Step 5: Get reply
-        if (status === "completed") {
-            const msgs  = await callApi(token, "GET", `${BASE}/threads/${threadId}/messages?api-version=${VER}`, null);
-            const reply = msgs.data[0].content
-                .filter(c => c.type === "text")
-                .map(c => c.text.value)
-                .join("");
+        if (reply.choices && reply.choices.length > 0) {
             context.res.status = 200;
-            context.res.body   = { reply };
+            context.res.body = { reply: reply.choices[0].message.content };
+        } else if (reply.error) {
+            context.res.status = 500;
+            context.res.body = { error: reply.error.message };
         } else {
             context.res.status = 500;
-            context.res.body   = { error: "Run status: " + status };
+            context.res.body = { error: "Unexpected response", raw: reply };
         }
 
     } catch (err) {
         context.res.status = 500;
-        context.res.body   = { error: err.message };
+        context.res.body = { error: err.message };
     }
 };
 
-function callApi(token, method, url, body) {
+function callApi(apiKey, url, body) {
     return new Promise((resolve, reject) => {
-        const parsed  = new URL(url);
-        const bodyStr = body !== null ? JSON.stringify(body) : null;
+        const parsed = new URL(url);
         const options = {
             hostname: parsed.hostname,
             path: parsed.pathname + parsed.search,
-            method,
+            method: "POST",
             headers: {
+                "api-key": apiKey,
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`,
-                ...(bodyStr && { "Content-Length": Buffer.byteLength(bodyStr) })
+                "Content-Length": Buffer.byteLength(body)
             }
         };
         const req = https.request(options, res => {
@@ -161,15 +88,11 @@ function callApi(token, method, url, body) {
             res.on("data", chunk => data += chunk);
             res.on("end", () => {
                 try { resolve(JSON.parse(data)); }
-                catch (e) { reject(new Error("Parse: " + data)); }
+                catch (e) { reject(new Error("Parse error: " + data)); }
             });
         });
         req.on("error", reject);
-        if (bodyStr) req.write(bodyStr);
+        req.write(body);
         req.end();
     });
-}
-
-function sleep(ms) {
-    return new Promise(r => setTimeout(r, ms));
 }
