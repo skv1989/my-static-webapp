@@ -29,7 +29,7 @@ module.exports = async function (context, req) {
     const BASE          = "https://readexcel-resource.services.ai.azure.com/api/projects/readexcel";
 
     try {
-        // Step 1: Get token for ai.azure.com
+        // Step 1: Get token
         const tokenBody = `grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${encodeURIComponent(CLIENT_SECRET)}&scope=https%3A%2F%2Fai.azure.com%2F.default`;
 
         const tokenData = await postForm("login.microsoftonline.com",
@@ -42,28 +42,43 @@ module.exports = async function (context, req) {
         }
 
         const token = tokenData.access_token;
-        context.log("Token obtained!");
+        context.log("✅ Token obtained");
 
-        // Step 2: Try multiple API versions to list agents
-        const versions = [
-            "2025-05-01",
-            "2025-01-01-preview",
-            "2024-12-01-preview",
-            "2024-07-01-preview"
-        ];
+        // Step 2: Use Responses API with agent_reference
+        const responseBody = {
+            model: "gpt-4.1",
+            input: [{ role: "user", content: userMessage }],
+            agent_reference: {
+                name: "ExlReader",
+                version: "2",
+                type: "agent_reference"
+            }
+        };
 
-        const results = {};
-        for (const ver of versions) {
-            const res = await callJson(token, "GET",
-                `${BASE}/assistants?api-version=${ver}`, null);
-            context.log(`Version ${ver}:`, JSON.stringify(res).substring(0, 200));
-            results[ver] = res;
-            if (res.data && res.data.length > 0) break;
+        const result = await callJson(token, "POST",
+            `${BASE}/openai/v1/responses`, responseBody);
+
+        context.log("Result:", JSON.stringify(result).substring(0, 500));
+
+        if (result.output_text) {
+            context.res.status = 200;
+            context.res.body = { reply: result.output_text };
+        } else if (result.output && result.output.length > 0) {
+            const text = result.output
+                .filter(o => o.type === "message")
+                .flatMap(o => o.content || [])
+                .filter(c => c.type === "output_text" || c.type === "text")
+                .map(c => c.text || c.value || "")
+                .join("");
+            context.res.status = 200;
+            context.res.body = { reply: text || JSON.stringify(result) };
+        } else if (result.error) {
+            context.res.status = 500;
+            context.res.body = { error: result.error.message, detail: result };
+        } else {
+            context.res.status = 200;
+            context.res.body = { reply: JSON.stringify(result) };
         }
-
-        context.res.status = 200;
-        context.res.body = { results };
-        return;
 
     } catch (err) {
         context.log("ERROR:", err.message);
@@ -119,7 +134,7 @@ function callJson(token, method, url, body) {
                     return;
                 }
                 try { resolve(JSON.parse(data)); }
-                catch (e) { reject(new Error("JSON parse: " + data.substring(0,200))); }
+                catch (e) { reject(new Error("JSON parse: " + data.substring(0, 200))); }
             });
         });
         req.on("error", reject);
